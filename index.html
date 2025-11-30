@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>圖片裁切工具</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@300;400;500;700&display=swap');
+        body {
+            font-family: 'Noto Sans TC', sans-serif;
+            background-color: #f0f2f5;
+        }
+        .canvas-container {
+            position: relative;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+        }
+        .checkerboard {
+            background-image: linear-gradient(45deg, #e5e7eb 25%, transparent 25%),
+            linear-gradient(-45deg, #e5e7eb 25%, transparent 25%),
+            linear-gradient(45deg, transparent 75%, #e5e7eb 75%),
+            linear-gradient(-45deg, transparent 75%, #e5e7eb 75%);
+            background-size: 20px 20px;
+            background-position: 0 0, 0 10px, 10px -10px, -10px 0px;
+        }
+    </style>
+</head>
+<body class="text-slate-800">
+
+    <div class="max-w-5xl mx-auto p-4 md:p-8">
+        <header class="text-center mb-10">
+            <h1 class="text-3xl md:text-4xl font-bold text-indigo-600 mb-2">圖片裁切工具</h1>
+            <p class="text-slate-500">上傳一張大圖，自動無損分割成多張 IG 貼文或九宮格素材</p>
+        </header>
+
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+            
+            <div class="lg:col-span-1 space-y-6">
+                <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
+                    <label class="block text-sm font-medium text-slate-700 mb-2">1. 上傳圖片</label>
+                    <div class="relative group">
+                        <input type="file" id="imageInput" accept="image/*" class="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10">
+                        <div class="border-2 border-dashed border-slate-300 rounded-xl p-8 text-center group-hover:border-indigo-500 group-hover:bg-indigo-50 transition-colors">
+                            <div class="mb-2">
+                                <svg class="w-10 h-10 mx-auto text-slate-400 group-hover:text-indigo-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
+                            </div>
+                            <span class="text-sm text-slate-500" id="fileName">點擊或拖曳圖片至此</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 opacity-50 pointer-events-none transition-opacity" id="settingsPanel">
+                    <label class="block text-sm font-medium text-slate-700 mb-4">2. 裁切設定</label>
+                    
+                    <div class="grid grid-cols-2 gap-4 mb-6">
+                        <div>
+                            <label class="block text-xs text-slate-500 mb-1">水平切幾塊 (Columns)</label>
+                            <input type="number" id="colCount" value="3" min="1" max="10" class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition">
+                        </div>
+                        <div>
+                            <label class="block text-xs text-slate-500 mb-1">垂直切幾塊 (Rows)</label>
+                            <input type="number" id="rowCount" value="1" min="1" max="10" class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition">
+                        </div>
+                    </div>
+
+                    <div class="space-y-2 mb-6">
+                        <p class="text-xs font-semibold text-slate-400 uppercase tracking-wider">常用模式</p>
+                        <div class="flex flex-wrap gap-2">
+                            <button onclick="setGrid(2,1)" class="px-3 py-1 text-xs bg-slate-100 hover:bg-slate-200 rounded-full text-slate-600 transition">對半切 (2x1)</button>
+                            <button onclick="setGrid(3,1)" class="px-3 py-1 text-xs bg-slate-100 hover:bg-slate-200 rounded-full text-slate-600 transition">IG 滑動貼文 (3x1)</button>
+                            <button onclick="setGrid(3,2)" class="px-3 py-1 text-xs bg-slate-100 hover:bg-slate-200 rounded-full text-slate-600 transition">6格主頁 (3x2)</button>
+                            <button onclick="setGrid(3,3)" class="px-3 py-1 text-xs bg-slate-100 hover:bg-slate-200 rounded-full text-slate-600 transition">9宮格 (3x3)</button>
+                        </div>
+                    </div>
+
+                    <button id="processBtn" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-medium py-3 px-4 rounded-xl shadow-lg shadow-indigo-200 transition transform active:scale-95 flex justify-center items-center gap-2">
+                        <span>開始裁切</span>
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                    </button>
+                </div>
+            </div>
+
+            <div class="lg:col-span-2 space-y-6">
+                
+                <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
+                    <div class="flex justify-between items-center mb-4">
+                        <h2 class="font-medium text-slate-700">圖片預覽</h2>
+                        <span id="imgDimensions" class="text-xs text-slate-400 bg-slate-100 px-2 py-1 rounded">尚未載入</span>
+                    </div>
+                    
+                    <div class="w-full flex justify-center bg-slate-50 rounded-xl overflow-hidden min-h-[300px] items-center checkerboard border border-slate-200 relative" id="previewContainer">
+                        <p class="text-slate-400 text-sm absolute pointer-events-none" id="placeholderText">預覽將顯示於此</p>
+                        <canvas id="previewCanvas" class="max-w-full h-auto shadow-lg hidden"></canvas>
+                    </div>
+                </div>
+
+                <div id="resultSection" class="hidden animate-fade-in-up">
+                    <div class="flex justify-between items-end mb-4">
+                        <h2 class="font-medium text-slate-700">裁切結果</h2>
+                        <button id="downloadAllBtn" class="text-sm bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded-lg shadow transition flex items-center gap-2">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
+                            下載全部 (.zip)
+                        </button>
+                    </div>
+                    
+                    <div id="outputGrid" class="grid grid-cols-2 md:grid-cols-3 gap-4">
+                    </div>
+                </div>
+
+            </div>
+        </div>
+    </div>
+
+    <canvas id="processCanvas" class="hidden"></canvas>
+
+    <script>
+        const imageInput = document.getElementById('imageInput');
+        const fileNameLabel = document.getElementById('fileName');
+        const settingsPanel = document.getElementById('settingsPanel');
+        const previewCanvas = document.getElementById('previewCanvas');
+        const placeholderText = document.getElementById('placeholderText');
+        const processCanvas = document.getElementById('processCanvas');
+        const colInput = document.getElementById('colCount');
+        const rowInput = document.getElementById('rowCount');
+        const imgDimensions = document.getElementById('imgDimensions');
+        const processBtn = document.getElementById('processBtn');
+        const resultSection = document.getElementById('resultSection');
+        const outputGrid = document.getElementById('outputGrid');
+        const downloadAllBtn = document.getElementById('downloadAllBtn');
+        const previewContainer = document.getElementById('previewContainer');
+
+        let originalImage = null;
+        let pieces = [];
+
+        window.setGrid = (cols, rows) => {
+            colInput.value = cols;
+            rowInput.value = rows;
+            updatePreview();
+        };
+
+        imageInput.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            fileNameLabel.textContent = file.name;
+            
+            const reader = new FileReader();
+            reader.onload = (event) => {
+                originalImage = new Image();
+                originalImage.onload = () => {
+                    settingsPanel.classList.remove('opacity-50', 'pointer-events-none');
+                    previewCanvas.classList.remove('hidden');
+                    placeholderText.classList.add('hidden');
+                    
+                    imgDimensions.textContent = `${originalImage.naturalWidth} x ${originalImage.naturalHeight} px`;
+
+                    updatePreview();
+                    resultSection.classList.add('hidden');
+                };
+                originalImage.src = event.target.result;
+            };
+            reader.readAsDataURL(file);
+        });
+
+        function updatePreview() {
+            if (!originalImage) return;
+
+            const cols = parseInt(colInput.value) || 1;
+            const rows = parseInt(rowInput.value) || 1;
+            
+            previewCanvas.width = originalImage.naturalWidth;
+            previewCanvas.height = originalImage.naturalHeight;
+            
+            const ctx = previewCanvas.getContext('2d');
+            
+            ctx.drawImage(originalImage, 0, 0);
+
+            ctx.strokeStyle = '#00ff00'; 
+            ctx.lineWidth = Math.max(2, originalImage.naturalWidth / 200);
+            ctx.shadowColor = 'rgba(0,0,0,0.5)';
+            ctx.shadowBlur = 4;
+
+            const cellWidth = originalImage.naturalWidth / cols;
+            const cellHeight = originalImage.naturalHeight / rows;
+
+            for (let i = 1; i < cols; i++) {
+                ctx.beginPath();
+                ctx.moveTo(i * cellWidth, 0);
+                ctx.lineTo(i * cellWidth, originalImage.naturalHeight);
+                ctx.stroke();
+            }
+
+            for (let i = 1; i < rows; i++) {
+                ctx.beginPath();
+                ctx.moveTo(0, i * cellHeight);
+                ctx.lineTo(originalImage.naturalWidth, i * cellHeight);
+                ctx.stroke();
+            }
+        }
+
+        colInput.addEventListener('input', updatePreview);
+        rowInput.addEventListener('input', updatePreview);
+
+        processBtn.addEventListener('click', async () => {
+            if (!originalImage) return;
+
+            const cols = parseInt(colInput.value);
+            const rows = parseInt(rowInput.value);
+            const cellWidth = originalImage.naturalWidth / cols;
+            const cellHeight = originalImage.naturalHeight / rows;
+
+            outputGrid.innerHTML = '';
+            pieces = [];
+            
+            resultSection.classList.remove('hidden');
+            
+            setTimeout(() => {
+                resultSection.scrollIntoView({ behavior: 'smooth' });
+            }, 100);
+
+            let count = 0;
+
+            for (let r = 0; r < rows; r++) {
+                for (let c = 0; c < cols; c++) {
+                    count++;
+                    
+                    const pCanvas = document.createElement('canvas');
+                    pCanvas.width = cellWidth;
+                    pCanvas.height = cellHeight;
+                    const pCtx = pCanvas.getContext('2d');
+
+                    pCtx.drawImage(
+                        originalImage,
+                        c * cellWidth, r * cellHeight, cellWidth, cellHeight,
+                        0, 0, cellWidth, cellHeight
+                    );
+
+                    const blob = await new Promise(resolve => pCanvas.toBlob(resolve, 'image/png'));
+                    const url = URL.createObjectURL(blob);
+                    
+                    const filename = `split_${count}_${c+1}x${r+1}.png`;
+                    
+                    pieces.push({
+                        blob: blob,
+                        filename: filename
+                    });
+
+                    const card = document.createElement('div');
+                    card.className = "bg-white p-3 rounded-xl shadow-sm border border-slate-200 flex flex-col items-center group";
+                    card.innerHTML = `
+                        <div class="w-full aspect-square bg-slate-100 rounded-lg overflow-hidden mb-3 relative checkerboard">
+                            <img src="${url}" class="w-full h-full object-contain">
+                            <div class="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-10 transition-all flex items-center justify-center">
+                                <span class="bg-black bg-opacity-70 text-white text-xs px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity">
+                                    #${count}
+                                </span>
+                            </div>
+                        </div>
+                        <div class="flex justify-between w-full items-center">
+                            <span class="text-xs text-slate-400 font-mono">${Math.round(cellWidth)}x${Math.round(cellHeight)}</span>
+                            <a href="${url}" download="${filename}" class="text-xs bg-indigo-50 text-indigo-600 hover:bg-indigo-100 px-3 py-1 rounded-md transition font-medium">下載</a>
+                        </div>
+                    `;
+                    outputGrid.appendChild(card);
+                }
+            }
+        });
+
+        // 4. Download All (Zip)
+        downloadAllBtn.addEventListener('click', () => {
+            if (pieces.length === 0) return;
+
+            const zip = new JSZip();
+            const folder = zip.folder("ig_slices");
+
+            pieces.forEach(p => {
+                folder.file(p.filename, p.blob);
+            });
+
+            downloadAllBtn.textContent = "打包中...";
+            
+            zip.generateAsync({type:"blob"})
+            .then(function(content) {
+                saveAs(content, "ig_slices.zip");
+                downloadAllBtn.innerHTML = `
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
+                    下載全部 (.zip)
+                `;
+            });
+        });
+
+    </script>
+</body>
+</html>
